@@ -53,11 +53,17 @@
             repo = "libkrunfw";
             version = "5.3.0";
             hash = "sha256-fhG/bP1HzmhyU2N+wnr1074WEGsD9RdTUUBhYUFpWlA=";
-            extraAttrs = _: {
+            extraAttrs = _: let
               kernelSrc = prev.fetchurl {
                 url = "mirror://kernel/linux/kernel/v6.x/linux-6.12.76.tar.xz";
                 hash = "sha256-u7Q+g0xG5r1JpcKPIuZ5qTdENATh9lMgTUskkp862JY=";
               };
+            in {
+              inherit kernelSrc;
+              postPatch = ''
+                substituteInPlace Makefile \
+                  --replace-fail 'curl $(KERNEL_REMOTE) -o $(KERNEL_TARBALL)' 'ln -s ${kernelSrc} $(KERNEL_TARBALL)'
+              '';
             };
           };
 
