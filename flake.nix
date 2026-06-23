@@ -171,7 +171,7 @@
 
         shellHook = ''
           echo "steam-asahi dev shell"
-          echo "  muvm $(muvm --version 2>&1 || echo 'available')"
+          echo "  muvm $(test -x ${lib.getExe pkgs.muvm} && echo ${lib.getExe pkgs.muvm} || echo 'not found')"
           echo "  FEXBash available: $(which FEXBash 2>/dev/null && echo yes || echo no)"
           echo ""
           echo "Test commands:"
