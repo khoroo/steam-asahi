@@ -229,24 +229,29 @@ log "Populated /run/fhs/usr/bin: $(ls /run/fhs/usr/bin/ | tr '\n' ' ')"
       # --- Ensure FEX rootfs ---
       fex_configured=false
       fex_dir="$HOME/.fex-emu"
-      debug "FEX dir: $fex_dir"
+      fex_data="''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu"
+      fex_config="''${XDG_CONFIG_HOME:-$HOME/.config}/fex-emu"
+      debug "FEX dirs: legacy=$fex_dir data=$fex_data config=$fex_config"
 
-      if [[ -d "$fex_dir/RootFS" ]]; then
-        debug "RootFS dir contents: $(ls -la "$fex_dir/RootFS/" 2>&1)"
-        for f in "$fex_dir/RootFS"/*; do
-          case "$f" in
-            *.ero | *.sqsh | *.img) fex_configured=true; debug "Found rootfs image: $f"; break ;;
-          esac
-          [[ -d "$f" ]] && { fex_configured=true; debug "Found rootfs dir: $f"; break; }
-        done
-      else
-        debug "RootFS dir does not exist"
-      fi
+      for rootfs_dir in "$fex_dir/RootFS" "$fex_data/RootFS"; do
+        if [[ -d "$rootfs_dir" ]]; then
+          debug "Checking $rootfs_dir..."
+          # shellcheck disable=SC2012
+          debug "Contents: $(ls "$rootfs_dir/" 2>&1 | tr '\n' ' ')"
+          for f in "$rootfs_dir"/*; do
+            case "$f" in
+              *.ero | *.sqsh | *.img) fex_configured=true; debug "Found rootfs image: $f"; break ;;
+            esac
+            [[ -d "$f" ]] && { fex_configured=true; debug "Found rootfs dir: $f"; break; }
+          done
+          $fex_configured && break
+        fi
+      done
 
-      if [[ "$fex_configured" = false && -f "$fex_dir/Config.json" ]]; then
+      if [[ "$fex_configured" = false && -f "$fex_config/Config.json" ]]; then
         debug "Checking Config.json for RootFS..."
-        debug "Config.json: $(cat "$fex_dir/Config.json" 2>&1)"
-        if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_dir/Config.json" 2>/dev/null; then
+        debug "Config.json: $(cat "$fex_config/Config.json" 2>&1)"
+        if grep -qE '"RootFS"[[:space:]]*:[[:space:]]*"[^"]+"' "$fex_config/Config.json" 2>/dev/null; then
           fex_configured=true
           debug "RootFS configured in Config.json"
         fi
@@ -280,32 +285,43 @@ log "Populated /run/fhs/usr/bin: $(ls /run/fhs/usr/bin/ | tr '\n' ' ')"
         debug "Bootstrap installed"
       fi
 
-      # --- Find FEX rootfs image for muvm ---
+      # --- Find FEX rootfs image for muvm (check legacy + XDG paths) ---
       fex_image=""
-      if [[ -d "$fex_dir/RootFS" ]]; then
-        debug "Scanning $fex_dir/RootFS for erofs images..."
-        ls -la "$fex_dir/RootFS/" >&3 2>&1
-        for f in "$fex_dir/RootFS"/*; do
-          case "$f" in
-            *.ero | *.erofs | *.sqsh)
-              fex_image="$f"
-              debug "Found fex_image: $fex_image"
+      for rootfs_dir in "$fex_dir/RootFS" "$fex_data/RootFS"; do
+        if [[ -d "$rootfs_dir" ]]; then
+          debug "Scanning $rootfs_dir for erofs images..."
+          ls -la "$rootfs_dir/" >&3 2>&1
+          for f in "$rootfs_dir"/*; do
+            case "$f" in
+              *.ero | *.erofs | *.sqsh)
+                fex_image="$f"
+                debug "Found fex_image: $fex_image"
+                break 2
+                ;;
+            esac
+          done
+        fi
+      done
+      # Resolve via Config.json if not found yet
+      if [[ -z "$fex_image" && -f "$fex_config/Config.json" ]]; then
+        rootfs_name=$(sed -n 's/.*"RootFS"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$fex_config/Config.json")
+        if [[ -n "$rootfs_name" ]]; then
+          for rootfs_dir in "$fex_dir/RootFS" "$fex_data/RootFS"; do
+            candidate="$rootfs_dir/$rootfs_name"
+            if [[ -f "$candidate" ]]; then
+              fex_image="$candidate"
+              debug "Found fex_image via Config.json: $fex_image"
               break
-              ;;
-          esac
-        done
+            fi
+          done
+        fi
       fi
       if [[ -z "$fex_image" ]]; then
         debug "No fex_image found (will skip --fex-image)"
       fi
 
       # --- Pre-flight checks ---
-      debug "Testing FEXBash standalone..."
-      if FEXBash -c 'echo FEX_OK; uname -m' 2>&3; then
-        debug "FEXBash standalone succeeded"
-      else
-        debug "FEXBash standalone FAILED (exit: $?)"
-      fi
+      debug "Skipping standalone FEXBash test (expected fail outside muvm on 16K host)"
 
       debug "Testing native muvm..."
       if muvm --interactive -- bash -c 'echo MUVM_OK' 2>&3; then
