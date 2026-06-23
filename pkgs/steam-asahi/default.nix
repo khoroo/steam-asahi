@@ -130,6 +130,10 @@ let
       cp ${lib.getExe' fuse3 "fusermount3"} /run/wrappers/bin/fusermount3
       chown root:root /run/wrappers/bin/fusermount /run/wrappers/bin/fusermount3
       chmod u=srx,g=x,o=x /run/wrappers/bin/fusermount /run/wrappers/bin/fusermount3
+
+      # Make fusermount available at the standard FHS path for FEX's FUSE rootfs
+      ln -sf /run/wrappers/bin/fusermount /run/fhs/usr/bin/fusermount
+      ln -sf /run/wrappers/bin/fusermount3 /run/fhs/usr/bin/fusermount3
     '';
   };
 
@@ -219,13 +223,33 @@ let
         echo "Steam bootstrap ready."
       fi
 
+      # --- Find FEX rootfs image for muvm ---
+      fex_image=""
+      if [[ -d "$fex_dir/RootFS" ]]; then
+        for f in "$fex_dir/RootFS"/*; do
+          case "$f" in
+            *.ero | *.erofs | *.sqsh)
+              fex_image="$f"
+              break
+              ;;
+          esac
+        done
+      fi
+
       # --- Launch Steam via muvm + FEXBash ---
       steam_args="-cef-force-occlusion''${*:+ $*}"
       uid=$(id -u)
 
       echo "Launching Steam via muvm + FEX..."
+
+      fex_muvm_args=()
+      if [[ -n "$fex_image" ]]; then
+        fex_muvm_args=(--fex-image "$fex_image")
+      fi
+
       exec ${lib.getExe muvm} \
         --gpu-mode=drm \
+        "''${fex_muvm_args[@]}" \
         --execute-pre ${lib.getExe initScript} \
         --interactive \
         -e "PRESSURE_VESSEL_FILESYSTEMS_RO=/nix:/run/opengl-driver" \
